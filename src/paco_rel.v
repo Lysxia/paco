@@ -262,3 +262,24 @@ Proof.
   rewrite 2 curry_uncurry in H0.
   assumption.
 Qed.
+
+Lemma uncurry_union_ : forall n (A : Type) (t : A -> arityn n) (r r' : forall a, rel (t a)),
+  paco_eq (fun a => uncurry (union (r a) (r' a))) (fun a u => uncurry (r a) u \/ uncurry (r' a) u).
+Proof.
+  induction n; cbn; intros.
+  - constructor.
+  - specialize (IHn (paco_sigT (fun a : A => paco_projT1 (t a)))).
+    specialize (IHn (fun ax => paco_projT2 (t _) (paco_projT2 ax))).
+    specialize (IHn (fun ax => r  _ (paco_projT2 ax))).
+    specialize (IHn (fun ax => r' _ (paco_projT2 ax))).
+    apply (f_equal (fun f (a : A) (u : paco_sigT (fun x : paco_projT1 (t a) => tuple (paco_projT2 (t a) x))) => f (paco_existT _ a (paco_projT1 u)) (paco_projT2 u))) in IHn.
+    cbn in IHn.
+    assumption.
+Qed.
+
+Lemma uncurry_union : forall n (t : arityn n) (r r' : rel t),
+  paco_eq (uncurry (union r r')) (fun u => uncurry r u \/ uncurry r' u).
+Proof.
+  intros.
+  apply (f_equal (fun f => f tt) (uncurry_union_ n (fun _ => t) (fun _ => r) (fun _ => r'))).
+Qed.

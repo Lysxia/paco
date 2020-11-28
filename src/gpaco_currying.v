@@ -15,8 +15,8 @@ Notation _rel := (_rel (aton t)).
 Local Infix "<=" := le : paco_scope.
 Local Notation "gf <2= gf'" := (forall r, gf r <= gf' r) : paco_scope.
 
-Definition _rclo (clo: rel->rel) (r: rel) : rel :=
-  curry (rclo (uncurry_relT clo) (uncurry r)).
+Definition _rclo (clo : rel->rel) : rel -> rel :=
+  curry_relT (rclo (uncurry_relT clo)).
 
 Lemma le_transport (r0 r0' : _rel) :
   forall r1 r1',
@@ -34,6 +34,14 @@ Lemma le_uncurry_curry_l (gf gf' : _rel) :
 Proof.
   red; intros.
   eapply H, uncurry_curry; assumption.
+Qed.
+
+Lemma le_uncurry_curry_r (gf gf' : _rel) :
+  _le gf gf' ->
+  _le gf (uncurry (curry gf')).
+Proof.
+  red; intros.
+  eapply uncurry_curry, H; assumption.
 Qed.
 
 Ltac simpl_le etc :=
@@ -413,6 +421,52 @@ Structure _wcompatible clo : Prop :=
           clo (gf r) <= gf (_gupaco gf clo r);
     }.
 
+Lemma curry_uncurry_relT (tr : rel -> rel) r
+  : paco_eq (curry (uncurry_relT tr r)) (tr (curry r)).
+Proof. apply curry_uncurry. Qed.
+
+Lemma ap_uncurry_relT (tr : rel -> rel) r
+  : paco_eq (uncurry_relT tr (uncurry r)) (uncurry (tr r)).
+Proof.
+  unfold uncurry_relT.
+  apply f_equal. apply f_equal. apply curry_uncurry.
+Qed.
+
+Lemma curry_ap_uncurry_relT (tr : rel -> rel) r
+  : paco_eq (curry (uncurry_relT tr (uncurry r))) (tr r).
+Proof.
+  destruct (eq_sym (ap_uncurry_relT tr r)).
+  apply curry_uncurry.
+Qed.
+
+Lemma _compatible_equiv clo
+  : compatible (uncurry_relT gf) (uncurry_relT clo) <-> _compatible clo.
+Proof.
+  split; intros [MON COMPAT]; constructor.
+  - apply uncurry_monotone_l. assumption.
+  - intros r. specialize (COMPAT (uncurry r)).
+    apply uncurry_relT_le in COMPAT.
+    destruct (curry_ap_uncurry_relT gf r).
+    destruct (curry_ap_uncurry_relT clo r).
+    assumption.
+  - apply uncurry_monotone. assumption.
+  - intros r. apply uncurry_relT_le.
+    destruct (eq_sym (curry_uncurry_relT gf r)).
+    destruct (eq_sym (curry_uncurry_relT clo r)).
+    apply COMPAT.
+Qed.
+
+Lemma _compatible_impl (_clo : _rel -> _rel)
+  : compatible (uncurry_relT gf) _clo -> _compatible (curry_relT _clo).
+Proof.
+  intros [MON COMPAT]; constructor.
+  - apply curry_monotone, MON.
+  - intros r. specialize (COMPAT (uncurry r)).
+    apply curry_le_l.
+    destruct (ap_uncurry_relT gf r).
+    exact COMPAT.
+Qed.
+
 End CompatibilityDef.
 
 Section Compatibility.
@@ -423,15 +477,19 @@ Ltac translate' X :=
 Ltac translate X :=
   translate' (@X (tuple t)).
 
+(*
 Lemma curry_uncurry_ctx:
   forall (n : nat) (t : arityn n) (R S : Type)
     (f : tuple t -> R)
     (g : tuple t -> R -> S),
   paco_eq
-    (
-     curry (fun u : tuple t => g u (uncurry (curry f) u)))
+    (curry (fun u : tuple t => g u (uncurry (curry f) u)))
     (curry (fun u : tuple t => g u (f u))).
 Admitted.
+*)
+
+Lemma apply_eq {A B} (x : A) (f g : forall x : A, B x) : paco_eq f g -> paco_eq (f x) (g x).
+Proof. intros []; constructor. Qed.
 
 Lemma _rclo_dist : forall clo
       (MON: _monotone clo)
@@ -439,133 +497,161 @@ Lemma _rclo_dist : forall clo
   forall r1 r2, _rclo clo (r1 \1/ r2) <= (_rclo clo r1 \1/ _rclo clo r2).
 Proof.
   translate rclo_dist. unfold uncurry_relT, union.
-  assert (I := curry_uncurry_ctx n t r1 (fun u z => z \/ r2 u)).
-  cbn in I.
+  assert (I := curry_uncurry_ctx (n := n) (fun _ : unit => t) (fun _ : unit => r1) (fun (_ : unit) u z => z \/ r2 u)).
+  apply (apply_eq tt) in I.
   match type of I with
   | paco_eq _ ?x => remember x eqn:E
   end.
   destruct I; clear E.
-  assert (I := curry_uncurry_ctx n t r2 (fun u z => uncurry (curry r1) u \/ z)).
-  cbn in I. destruct I.
+  assert (I := curry_uncurry_ctx (n := n) (fun _ : unit => t) (fun _ : unit => r2) (fun (_ : unit) u z => uncurry (curry r1) u \/ z)).
+  apply (apply_eq tt) in I.
+  destruct I.
   apply Reflexive_le_.
 Qed.
 
-Context {gf : rel -> rel} {gf_mon: _monotone gf}.
+Context {gf : rel -> rel} (gf_mon: _monotone gf).
 
-Local Notation compatible := (_compatible gf).
-Local Notation wcompatible := (_wcompatible gf).
+Local Notation _compatible := (_compatible gf).
+Local Notation _wcompatible := (_wcompatible gf).
 
-Lemma rclo_compat clo
-      (COM: compatible clo):
-  compatible (_rclo clo).
+Lemma _wcompatible_equiv clo
+  : wcompatible (uncurry_relT gf) (uncurry_relT clo) <-> _wcompatible clo.
 Proof.
-  econstructor; [ typeclasses eauto | ].
-  intros. induction PR.
-  - monotonic gf_mon IN.
-    intros. eapply rclo_base. apply PR.
-  - eapply gf_mon.
-    + intros. eapply rclo_clo. apply PR.
-    + eapply COM. eapply COM. apply H. apply IN.
+  split; intros [MON COMPAT]; constructor.
+  - apply uncurry_monotone_l. assumption.
+  - intros r. specialize (COMPAT (uncurry r)).
+    apply uncurry_relT_le in COMPAT.
+    destruct (curry_ap_uncurry_relT gf r).
+    exact COMPAT.
+  - apply uncurry_monotone. assumption.
+  - intros r. apply uncurry_relT_le.
+    destruct (eq_sym (curry_uncurry_relT gf r)).
+    specialize (COMPAT (curry r)).
+    apply (Transitive_le _ _ _ COMPAT).
+    apply gf_mon.
+    apply curry_le.
+    apply gupaco_mon.
+    apply uncurry_curry.
 Qed.
 
-Lemma rclo_wcompat clo
-      (COM: wcompatible clo):
-  wcompatible (rclo clo).
+Lemma _wcompatible_impl (_clo : _rel -> _rel)
+  : wcompatible (uncurry_relT gf) _clo -> _wcompatible (curry_relT _clo).
 Proof.
-  econstructor; [ typeclasses eauto | ].
-  intros. induction PR.
-  - monotonic gf_mon IN.
-    intros. apply gpaco_base. apply PR.
-  - eapply gf_mon.
-    + intros. apply gpaco_gupaco.
-      monotonic gupaco_mon_gen PR; [trivial| |eauto].
-      intros ? ?; eapply rclo_clo'. apply rclo_base.
-    + eapply COM. eapply COM. apply H. apply IN.
+  intros [MON COMPAT]; constructor.
+  - apply curry_monotone, MON.
+  - intros r. specialize (COMPAT (uncurry r)).
+    apply curry_le_l.
+    destruct (ap_uncurry_relT gf r).
+    apply (Transitive_le_ COMPAT).
+    apply uncurry_le.
+    apply gf_mon.
+    apply curry_le.
+    unfold _le.
+    apply (@gupaco_mon_gen (tuple t)).
+    + apply uncurry_monotone. assumption.
+    + exact (fun _ _ p => p).
+    + intros r1. apply le_uncurry_curry_r, MON, le_uncurry_curry_r, Reflexive_le_.
+    + exact (fun _ p => p).
 Qed.
 
-Lemma compat_wcompat clo
-      (CMP: compatible clo):
-  wcompatible clo.
+Lemma rclo_compat clo (COM : _compatible clo) : _compatible (_rclo clo).
 Proof.
-  econstructor. apply CMP.
-  intros. apply CMP in PR.
-  monotonic gf_mon PR.
-  intros. apply gpaco_clo, PR.
+  apply _compatible_impl.
+  apply rclo_compat; [ apply uncurry_monotone, gf_mon | ].
+  apply _compatible_equiv.
+  assumption.
 Qed.
 
-Lemma wcompat_compat clo
-      (WCMP: wcompatible clo) :
-  compatible (gupaco gf clo).
+Lemma rclo_wcompat (clo : rel -> rel) (COM : _wcompatible clo) : _wcompatible (_rclo clo).
 Proof.
-  econstructor; [ typeclasses eauto | ].
-  intros. apply gpaco_unfold in PR.
-  induction PR.
-  - destruct IN; cycle 1.
-    + monotonic gf_mon H.
-      intros. apply gpaco_base, PR.
-    + monotonic gf_mon H.
-      intros. apply gpaco_gupaco.
-      monotonic gupaco_mon PR.
-      intros. apply gpaco_step.
-      apply (or_ind (fun x => x) (fun x => x)) in PR.
-      monotonic gf_mon PR.
-      apply gpaco_base.
-  - eapply gf_mon; [ apply gpaco_gupaco | ].
-    apply WCMP. eapply WCMP. apply H. apply IN.
+  apply _wcompatible_impl.
+  apply rclo_wcompat; [ apply uncurry_monotone, gf_mon | ].
+  apply _wcompatible_equiv.
+  assumption.
+Qed.
+
+Lemma compat_wcompat clo (CMP : _compatible clo) : _wcompatible clo.
+Proof.
+  apply _wcompatible_equiv.
+  apply compat_wcompat; [ apply uncurry_monotone, gf_mon | ].
+  apply _compatible_equiv.
+  assumption.
+Qed.
+
+Lemma wcompat_compat clo (WCMP : _wcompatible clo) : _compatible (_gupaco gf clo).
+Proof.
+  apply (_compatible_impl (_clo := gupaco (uncurry_relT gf) (uncurry_relT clo))).
+  apply wcompat_compat; [ apply uncurry_monotone, gf_mon | ].
+  apply _wcompatible_equiv.
+  assumption.
 Qed.
 
 Lemma wcompat_union clo1 clo2
-      (WCMP1: wcompatible clo1)
-      (WCMP2: wcompatible clo2):
-  wcompatible (clo1 \2/ clo2).
+      (WCMP1: _wcompatible clo1)
+      (WCMP2: _wcompatible clo2):
+  _wcompatible (fun r => clo1 r \1/ clo2 r).
 Proof.
-  econstructor.
-  - apply monotone_union. apply WCMP1. apply WCMP2.
-  - intros. destruct PR.
-    + apply WCMP1 in H. monotonic gf_mon H.
-      intros. monotonic gupaco_mon_gen PR; auto.
-    + apply WCMP2 in H. monotonic gf_mon H.
-      intros. monotonic gupaco_mon_gen PR; auto.
+  apply _wcompatible_equiv.
+  unfold uncurry_relT.
+  assert (E := eq_sym (uncurry_union_ n (fun (_ : _rel) => t) (fun r => clo1 (curry r)) (fun r => clo2 (curry r)))).
+  cbn in E.
+  destruct E.
+  apply wcompat_union; [ apply uncurry_monotone, gf_mon | | ].
+  all: apply _wcompatible_equiv; assumption.
 Qed.
 
 End Compatibility.
 
 Section Soundness.
 
-Context {gf: rel -> rel} {gf_mon: monotone gf}.
+Context {gf: rel -> rel} {gf_mon: _monotone gf}.
+
+Lemma uncurry_bot
+  : paco_eq (uncurry (t := t) _bot) bot1.
+Proof.
+Admitted.
 
 Lemma gpaco_compat_init clo
-      (CMP: compatible gf clo):
-  gpaco gf clo bot1 bot1 <1= paco gf bot1.
+      (CMP: _compatible gf clo):
+  _gpaco gf clo _bot _bot <= _paco gf _bot.
 Proof.
-  intros. destruct PR. revert x0 IN.
-  pcofix_ CIH. intros x H. apply paco_fold.
-  eapply gf_mon; [right; apply CIH, rclo_rclo, PR |].
-  apply compat_compat with (gf:=gf). apply rclo_compat. apply CMP.
-  monotonic rclo_mon H.
-  intros. destruct PR; [|contradiction]. apply paco_unfold in H; [..|apply gpaco_def_mon ].
-  monotonic gpaco_def_mon H.
-  intros. destruct PR; [left; apply H|destruct H; contradiction].
+  apply curry_le.
+  pose (bot := uncurry (t := t) _bot).
+  change (uncurry (t := t) _bot) with bot.
+  assert (e := eq_sym uncurry_bot : paco_eq bot1 bot).
+  destruct e.
+  red; apply gpaco_compat_init; [ apply uncurry_monotone, gf_mon | ].
+  apply _compatible_equiv.
+  assumption.
 Qed.
 
 Lemma gpaco_init clo
-      (WCMP: wcompatible gf clo):
-  gpaco gf clo bot1 bot1 <1= paco gf bot1.
+      (WCMP: _wcompatible gf clo):
+  _gpaco gf clo _bot _bot <= _paco gf _bot.
 Proof.
-  intros. eapply gpaco_compat_init.
-  - apply wcompat_compat, WCMP.
-  - monotonic gpaco_mon_bot PR. intros; apply PR.
-    intros. apply gpaco_clo, PR.
+  apply curry_le.
+  pose (bot := uncurry (t := t) _bot).
+  change (uncurry (t := t) _bot) with bot.
+  assert (e := eq_sym uncurry_bot : paco_eq bot1 bot).
+  destruct e.
+  red; apply gpaco_init; [ apply uncurry_monotone, gf_mon | ].
+  apply _wcompatible_equiv; [ apply gf_mon | ].
+  assumption.
 Qed.
 
 Lemma gpaco_unfold_bot clo
-      (WCMP: wcompatible gf clo):
-  gpaco gf clo bot1 bot1 <1= gf (gpaco gf clo bot1 bot1).
+      (WCMP: _wcompatible gf clo):
+  _gpaco gf clo _bot _bot <= gf (_gpaco gf clo _bot _bot).
 Proof.
-  intros. apply gpaco_init in PR; [|apply WCMP].
-  apply paco_unfold in PR; [..|apply gf_mon].
-  monotonic gf_mon PR.
-  intros. destruct PR; [|contradiction]. apply gpaco_final; auto.
+  apply curry_le_l.
+  unfold _gpaco.
+  pose (bot := uncurry (t := t) _bot).
+  change (uncurry (t := t) _bot) with bot.
+  assert (e := eq_sym uncurry_bot : paco_eq bot1 bot).
+  destruct e.
+  red. apply gpaco_unfold_bot; [ apply uncurry_monotone, gf_mon | ].
+  apply _wcompatible_equiv; [ apply gf_mon | ].
+  assumption.
 Qed.
 
 End Soundness.
